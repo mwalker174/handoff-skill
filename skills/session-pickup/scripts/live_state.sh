@@ -34,7 +34,15 @@ while [ $# -gt 0 ]; do
 done
 
 FAIL=0
-mtime_of() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
+# GNU stat must be tried FIRST, and output validated, not just exit status: on Linux `stat -f %m`
+# reads -f as "filesystem status", prints a File:/ID:/Type: block to STDOUT, *then* fails with exit 1,
+# so a BSD-first `|| stat -c` chain returns junk plus the real epoch. See the handoff_scan.sh note.
+mtime_of() {
+  local s
+  s=$(stat -c %Y "$1" 2>/dev/null)
+  case "$s" in *[!0-9]*|'') s=$(stat -f %m "$1" 2>/dev/null | tail -n 1) ;; esac
+  case "$s" in *[!0-9]*|'') echo 0 ;; *) echo "$s" ;; esac
+}
 when_of()  { date -r "$1" '+%Y-%m-%d %H:%M' 2>/dev/null || date -d "@$1" '+%Y-%m-%d %H:%M' 2>/dev/null || echo '?'; }
 
 command -v git >/dev/null 2>&1 || { echo "git not found" >&2; exit 2; }

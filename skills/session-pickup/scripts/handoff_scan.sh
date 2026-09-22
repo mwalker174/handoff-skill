@@ -39,9 +39,23 @@ done
 [ -d "$ROOT" ] || { echo "no such directory: $ROOT" >&2; exit 2; }
 ROOT=$(cd "$ROOT" && pwd -P)
 
-mtime_of() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null || echo 0; }
-iso_of()   { stat -f '%Sm' -t '%Y-%m-%d %H:%M' "$1" 2>/dev/null \
-             || stat -c '%y' "$1" 2>/dev/null | cut -c1-16 || echo '?'; }
+# GNU stat must be tried FIRST, and output validated, not just exit status: on Linux `stat -f %m`
+# reads -f as "filesystem status", prints a File:/ID:/Type: block to STDOUT, *then* fails with exit 1.
+# A BSD-first `|| stat -c` chain therefore returns junk + the real epoch, and the junk lands in the
+# mtime sort key, silently breaking the mtime clock. GNU succeeds cleanly; macOS fails cleanly on -c.
+mtime_of() {
+  local s
+  s=$(stat -c %Y "$1" 2>/dev/null)
+  case "$s" in *[!0-9]*|'') s=$(stat -f %m "$1" 2>/dev/null | tail -n 1) ;; esac
+  case "$s" in *[!0-9]*|'') echo 0 ;; *) echo "$s" ;; esac
+}
+iso_of() {
+  local s
+  s=$(stat -c %y "$1" 2>/dev/null | cut -c1-16)
+  [ -n "$s" ] || s=$(stat -f '%Sm' -t '%Y-%m-%d %H:%M' "$1" 2>/dev/null | tail -n 1)
+  [ -n "$s" ] || s='?'
+  printf '%s\n' "$s"
+}
 
 # Numbered series (NNN-slug.md) is the common convention; also take anything that self-identifies.
 cands=$(find "$ROOT" \
